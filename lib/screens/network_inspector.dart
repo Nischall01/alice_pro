@@ -1,0 +1,792 @@
+import 'package:flutter/material.dart';
+import 'package:alice_transport/alice_transport.dart';
+import '../models/mock_data.dart';
+import '../server/websocket_server.dart';
+
+/// Desktop Network Inspector - 3-pane workstation layout
+class NetworkInspectorScreen extends StatefulWidget {
+  const NetworkInspectorScreen({super.key});
+
+  @override
+  State<NetworkInspectorScreen> createState() => _NetworkInspectorScreenState();
+}
+
+class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
+  late AliceWebSocketServer _wsServer;
+  final List<AliceHttpCall> _allCalls = [];
+  List<AliceHttpCall> _filteredCalls = [];
+  AliceHttpCall? _selectedCall;
+  String _searchQuery = '';
+  String _filterMethod = 'ALL';
+
+  @override
+  void initState() {
+    super.initState();
+    // Load mock sample data initially
+    _allCalls.addAll(MockData.generateSampleCalls());
+    _filteredCalls = List.from(_allCalls);
+
+    // Start WebSocket server on port 4040
+    _wsServer = AliceWebSocketServer(port: 4040);
+    _wsServer.start();
+    _wsServer.onCallReceived.listen((call) {
+      setState(() {
+        _allCalls.insert(0, call);
+        _filterCalls();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _wsServer.stop();
+    super.dispose();
+  }
+
+  void _filterCalls() {
+    setState(() {
+      _filteredCalls = _allCalls.where((call) {
+        final matchesMethod = _filterMethod == 'ALL' || call.method == _filterMethod;
+        final matchesSearch = _searchQuery.isEmpty ||
+            call.uri.contains(_searchQuery) ||
+            (call.statusCode?.toString().contains(_searchQuery) ?? false);
+        return matchesMethod && matchesSearch;
+      }).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0);
+
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
+      body: Column(
+        children: [
+          // Top toolbar
+          Container(
+            height: 56,
+            color: isDark ? const Color(0xFF1A1A2E) : const Color(0xFF6C5CE7),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.network_ping, color: Colors.white, size: 28),
+                const SizedBox(width: 12),
+                const Text(
+                  'Alice Network Inspector (Port 4040)',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+
+                // Search bar
+                SizedBox(
+                  width: 300,
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search requests...',
+                      prefixIcon: const Icon(Icons.search, color: Colors.white70),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.15),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    onChanged: (value) {
+                      _searchQuery = value;
+                      _filterCalls();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Method filter
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButton<String>(
+                    value: _filterMethod,
+                    dropdownColor: isDark ? const Color(0xFF1A1A2E) : Colors.white,
+                    underline: const SizedBox(),
+                    icon: const Icon(Icons.filter_list, color: Colors.white),
+                    items: ['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((method) {
+                      return DropdownMenuItem(
+                        value: method,
+                        child: Text(method, style: const TextStyle(color: Colors.white)),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        _filterMethod = value;
+                        _filterCalls();
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 16),
+
+                // Stats
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.request_page, color: Colors.white, size: 16),
+                      const SizedBox(width: 4),
+                      Text('${_filteredCalls.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      Icon(Icons.check_circle, color: Colors.green.shade300, size: 16),
+                      const SizedBox(width: 4),
+                      Text('${_filteredCalls.where((c) => c.isSuccess).length}', style: const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Main 3-pane layout
+          Expanded(
+            child: Row(
+              children: [
+                // Pane 1: Request List
+                Container(
+                  width: 380,
+                  color: panelColor,
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+                          border: Border(bottom: BorderSide(color: borderColor)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.list, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                            const SizedBox(width: 8),
+                            Text('Requests (${_filteredCalls.length})', style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _filteredCalls.isEmpty
+                            ? Center(child: Text('No requests found', style: TextStyle(color: isDark ? Colors.white38 : Colors.black38)))
+                            : ListView.builder(
+                                itemCount: _filteredCalls.length,
+                                itemBuilder: (context, index) {
+                                  final call = _filteredCalls[index];
+                                  final isSelected = _selectedCall?.id == call.id;
+                                  return _RequestListItem(
+                                    call: call,
+                                    isSelected: isSelected,
+                                    onTap: () => setState(() => _selectedCall = call),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Divider
+                Container(width: 1, color: borderColor),
+
+                // Pane 2: Request/Response Details
+                Expanded(
+                  flex: 2,
+                  child: _selectedCall == null
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.touch_app, size: 64, color: isDark ? Colors.white12 : Colors.black12),
+                              const SizedBox(height: 16),
+                              Text('Select a request to view details', style: TextStyle(fontSize: 16, color: isDark ? Colors.white38 : Colors.black38)),
+                            ],
+                          ),
+                        )
+                      : _DetailsPanel(call: _selectedCall!, isDark: isDark, borderColor: borderColor),
+                ),
+
+                // Divider
+                Container(width: 1, color: borderColor),
+
+                // Pane 3: SQL Query Console
+                Container(
+                  width: 400,
+                  color: panelColor,
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+                          border: Border(bottom: BorderSide(color: borderColor)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.storage, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+                            const SizedBox(width: 8),
+                            Text('Query Console', style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _QueryConsole(isDark: isDark, borderColor: borderColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RequestListItem extends StatelessWidget {
+  final AliceHttpCall call;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _RequestListItem({
+    required this.call,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? const Color(0xFF2D2D5E) : const Color(0xFFEDE7F6))
+              : null,
+          border: Border(
+            left: BorderSide(
+              color: isSelected
+                  ? const Color(0xFF6C5CE7)
+                  : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: _getMethodColor(call.method),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                call.method.toUpperCase(),
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    call.uri,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: call.isSuccess ? Colors.green : Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${call.statusCode ?? '???'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: call.isSuccess ? (isDark ? Colors.greenAccent : Colors.green) : (isDark ? Colors.redAccent : Colors.red),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${call.durationMs}ms',
+                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black45),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getMethodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET': return const Color(0xFF4CAF50);
+      case 'POST': return const Color(0xFF2196F3);
+      case 'PUT':
+      case 'PATCH': return const Color(0xFFFF9800);
+      case 'DELETE': return const Color(0xFFF44336);
+      default: return Colors.grey;
+    }
+  }
+}
+
+class _DetailsPanel extends StatelessWidget {
+  final AliceHttpCall call;
+  final bool isDark;
+  final Color borderColor;
+
+  const _DetailsPanel({
+    required this.call,
+    required this.isDark,
+    required this.borderColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _getMethodColor(call.method),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        call.method.toUpperCase(),
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        call.uri,
+                        style: TextStyle(fontSize: 14, color: isDark ? Colors.white : Colors.black87),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _InfoChip(icon: Icons.speed, label: '${call.durationMs}ms'),
+                    const SizedBox(width: 8),
+                    _InfoChip(
+                      icon: call.isSuccess ? Icons.check_circle : Icons.error,
+                      label: (call.statusCode ?? 'ERR').toString(),
+                      color: call.isSuccess ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 8),
+                    _InfoChip(icon: Icons.schedule, label: call.timestamp.toString().split('.').first),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          _CollapsibleSection(
+            title: 'Request Headers',
+            icon: Icons.arrow_upward,
+            isDark: isDark,
+            borderColor: borderColor,
+            child: _HeadersTable(headers: call.headers),
+          ),
+          const SizedBox(height: 12),
+          if (call.body != null)
+            _CollapsibleSection(
+              title: 'Request Body',
+              icon: Icons.arrow_upward,
+              isDark: isDark,
+              borderColor: borderColor,
+              child: _CodeBlock(code: call.body!),
+            ),
+          const SizedBox(height: 20),
+          if (call.responseHeaders != null)
+            _CollapsibleSection(
+              title: 'Response Headers',
+              icon: Icons.arrow_downward,
+              isDark: isDark,
+              borderColor: borderColor,
+              child: _HeadersTable(headers: call.responseHeaders!),
+            ),
+          const SizedBox(height: 12),
+          if (call.responseBody != null)
+            _CollapsibleSection(
+              title: 'Response Body',
+              icon: Icons.arrow_downward,
+              isDark: isDark,
+              borderColor: borderColor,
+              child: _CodeBlock(code: call.responseBody!),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Color _getMethodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET': return const Color(0xFF4CAF50);
+      case 'POST': return const Color(0xFF2196F3);
+      case 'PUT':
+      case 'PATCH': return const Color(0xFFFF9800);
+      case 'DELETE': return const Color(0xFFF44336);
+      default: return Colors.grey;
+    }
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  const _InfoChip({required this.icon, required this.label, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: (color ?? (isDark ? Colors.blueAccent : Colors.blue)).withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color ?? (isDark ? Colors.blueAccent : Colors.blue)),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: color ?? (isDark ? Colors.blueAccent : Colors.blue))),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollapsibleSection extends StatefulWidget {
+  final String title;
+  final IconData icon;
+  final bool isDark;
+  final Color borderColor;
+  final Widget child;
+
+  const _CollapsibleSection({
+    required this.title,
+    required this.icon,
+    required this.isDark,
+    required this.borderColor,
+    required this.child,
+  });
+
+  @override
+  State<_CollapsibleSection> createState() => _CollapsibleSectionState();
+}
+
+class _CollapsibleSectionState extends State<_CollapsibleSection> {
+  bool _isExpanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: widget.borderColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: widget.isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+              ),
+              child: Row(
+                children: [
+                  Icon(widget.icon, size: 16, color: widget.isDark ? Colors.white70 : Colors.black54),
+                  const SizedBox(width: 8),
+                  Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  Icon(_isExpanded ? Icons.expand_less : Icons.expand_more, size: 20),
+                ],
+              ),
+            ),
+          ),
+          if (_isExpanded) widget.child,
+        ],
+      ),
+    );
+  }
+}
+
+class _HeadersTable extends StatelessWidget {
+  final Map<String, String> headers;
+
+  const _HeadersTable({required this.headers});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 200),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: headers.length,
+        itemBuilder: (context, index) {
+          final key = headers.keys.elementAt(index);
+          final value = headers.values.elementAt(index);
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: isDark ? const Color(0xFF333333) : const Color(0xFFEEEEEE))),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 180,
+                  child: Text(key, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isDark ? Colors.blueAccent : Colors.deepPurple)),
+                ),
+                Expanded(
+                  child: Text(value, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87)),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CodeBlock extends StatelessWidget {
+  final String code;
+
+  const _CodeBlock({required this.code});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 300),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(
+          code,
+          style: TextStyle(
+            fontSize: 12,
+            fontFamily: 'monospace',
+            color: isDark ? Colors.greenAccent : Colors.black87,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QueryConsole extends StatefulWidget {
+  final bool isDark;
+  final Color borderColor;
+
+  const _QueryConsole({required this.isDark, required this.borderColor});
+
+  @override
+  State<_QueryConsole> createState() => _QueryConsoleState();
+}
+
+class _QueryConsoleState extends State<_QueryConsole> {
+  final TextEditingController _controller = TextEditingController();
+  String _queryResult = 'Ready to execute query...';
+  bool _isExecuting = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _executeQuery() {
+    if (_controller.text.trim().isEmpty) return;
+
+    setState(() => _isExecuting = true);
+
+    Future.delayed(const Duration(milliseconds: 800), () {
+      setState(() {
+        _queryResult = '''
++----+---------------------+-------+----------+
+| #  | timestamp           | method| status   |
++----+---------------------+-------+----------+
+| 1  | 2024-01-15 10:30:00 | GET   | 200      |
+| 2  | 2024-01-15 10:30:05 | POST  | 201      |
+| 3  | 2024-01-15 10:30:12 | GET   | 200      |
++----+---------------------+-------+----------+
+
+3 rows in set (0.045s)''';
+        _isExecuting = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: widget.borderColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: widget.isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.code, size: 14, color: widget.isDark ? Colors.white70 : Colors.black54),
+                      const SizedBox(width: 8),
+                      const Text('SQL Query', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                TextField(
+                  controller: _controller,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'SELECT * FROM http_calls WHERE status = 200',
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.all(12),
+                  ),
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 13, color: widget.isDark ? Colors.greenAccent : Colors.black87),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: ElevatedButton.icon(
+              onPressed: _isExecuting ? null : _executeQuery,
+              icon: _isExecuting
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.play_arrow, size: 18),
+              label: Text(_isExecuting ? 'Executing...' : 'Execute Query'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6C5CE7),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: widget.borderColor),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: widget.isDark ? const Color(0xFF252525) : const Color(0xFFF8F8F8),
+                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.terminal, size: 14, color: widget.isDark ? Colors.white70 : Colors.black54),
+                        const SizedBox(width: 8),
+                        const Text('Results', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        _queryResult,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: widget.isDark ? Colors.greenAccent : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

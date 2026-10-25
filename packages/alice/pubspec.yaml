@@ -1,0 +1,23 @@
+name: alice
+description: Mobile HTTP interceptor and local database capture library for Alice inspector.
+version: 1.0.0
+publish_to: 'none'
+resolution: workspace
+
+environment:
+  sdk: ^3.13.5
+  flutter: ^3.19.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  alice_transport:
+    path: ../alice_transport
+  http: ^1.2.0
+  dio: ^5.4.0
+  web_socket_channel: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

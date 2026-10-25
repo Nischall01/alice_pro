@@ -1,0 +1,4 @@
+- `[ ]` Step 1: Set up Flutter Workspace & Monorepo Structure
+- `[ ]` Step 2: Implement and Test Phase 1 (`alice_transport` serialization models)
+- `[ ]` Step 3: Implement Mobile Interceptors & Local Storage (`packages/alice`)
+- `[ ]` Step 4: Wire up Desktop Companion App (`apps/alice_desktop`) & Verification
