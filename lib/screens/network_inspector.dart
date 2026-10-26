@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:alice_transport/alice_transport.dart';
 import '../models/mock_data.dart';
 import '../server/websocket_server.dart';
@@ -702,31 +704,232 @@ class _HeadersTable extends StatelessWidget {
   }
 }
 
-class _CodeBlock extends StatelessWidget {
+class _CodeBlock extends StatefulWidget {
   final String code;
 
   const _CodeBlock({required this.code});
 
   @override
+  State<_CodeBlock> createState() => _CodeBlockState();
+}
+
+class _CodeBlockState extends State<_CodeBlock> {
+  bool _isFormatted = true;
+  bool _copied = false;
+
+  String get _formattedCode {
+    if (!_isFormatted) return widget.code;
+    try {
+      final parsed = jsonDecode(widget.code);
+      return const JsonEncoder.withIndent('  ').convert(parsed);
+    } catch (_) {
+      return widget.code;
+    }
+  }
+
+  bool get _isJson {
+    try {
+      jsonDecode(widget.code);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _copyToClipboard() {
+    Clipboard.setData(ClipboardData(text: _formattedCode));
+    setState(() => _copied = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textToDisplay = _formattedCode;
+    final isJsonPayload = _isJson;
+
+    final bg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF8F9FA);
+    final borderColor = isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0);
 
     return Container(
-      constraints: const BoxConstraints(maxHeight: 300),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF5F5F5),
+        color: bg,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Text(
-          code,
-          style: TextStyle(
-            fontSize: 12,
-            fontFamily: 'monospace',
-            color: isDark ? Colors.greenAccent : Colors.black87,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Action Toolbar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF252526) : const Color(0xFFEFEFEF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(8),
+                topRight: Radius.circular(8),
+              ),
+              border: Border(bottom: BorderSide(color: borderColor)),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  isJsonPayload ? 'JSON Payload (${widget.code.length} bytes)' : 'Raw Body (${widget.code.length} bytes)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+                const Spacer(),
+                if (isJsonPayload)
+                  InkWell(
+                    onTap: () => setState(() => _isFormatted = !_isFormatted),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      child: Text(
+                        _isFormatted ? 'View Raw' : 'Prettify JSON',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6C5CE7),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: _copyToClipboard,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _copied ? Icons.check : Icons.copy,
+                        size: 13,
+                        color: _copied ? Colors.green : (isDark ? Colors.white70 : Colors.black54),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _copied ? 'Copied!' : 'Copy',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _copied ? Colors.green : (isDark ? Colors.white70 : Colors.black54),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
+
+          // Code Display Area
+          Container(
+            constraints: const BoxConstraints(maxHeight: 350),
+            padding: const EdgeInsets.all(12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.vertical,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: isJsonPayload && _isFormatted
+                    ? _buildJsonRichText(textToDisplay, isDark)
+                    : SelectableText(
+                        textToDisplay,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          color: isDark ? const Color(0xFFCE9178) : const Color(0xFF000000),
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJsonRichText(String jsonStr, bool isDark) {
+    final spans = <TextSpan>[];
+    final keyColor = isDark ? const Color(0xFF9CDCFE) : const Color(0xFF0451A5);
+    final stringColor = isDark ? const Color(0xFFCE9178) : const Color(0xFFA31515);
+    final numberColor = isDark ? const Color(0xFFB5CEA8) : const Color(0xFF098658);
+    final boolColor = isDark ? const Color(0xFF569CD6) : const Color(0xFF0000FF);
+    final nullColor = isDark ? const Color(0xFF569CD6) : const Color(0xFF0000FF);
+    final punctuationColor = isDark ? const Color(0xFFD4D4D4) : const Color(0xFF333333);
+
+    final regex = RegExp(
+      r'("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(true|false)|(null)|([{}[\]:,])',
+      multiLine: true,
+    );
+
+    int lastMatchEnd = 0;
+
+    for (final match in regex.allMatches(jsonStr)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(
+          text: jsonStr.substring(lastMatchEnd, match.start),
+          style: TextStyle(color: punctuationColor),
+        ));
+      }
+
+      if (match.group(1) != null) {
+        // Key
+        spans.add(TextSpan(
+          text: match.group(1),
+          style: TextStyle(color: keyColor, fontWeight: FontWeight.bold),
+        ));
+      } else if (match.group(2) != null) {
+        // String Value
+        spans.add(TextSpan(
+          text: match.group(2),
+          style: TextStyle(color: stringColor),
+        ));
+      } else if (match.group(3) != null) {
+        // Number
+        spans.add(TextSpan(
+          text: match.group(3),
+          style: TextStyle(color: numberColor),
+        ));
+      } else if (match.group(4) != null) {
+        // Boolean
+        spans.add(TextSpan(
+          text: match.group(4),
+          style: TextStyle(color: boolColor, fontWeight: FontWeight.bold),
+        ));
+      } else if (match.group(5) != null) {
+        // Null
+        spans.add(TextSpan(
+          text: match.group(5),
+          style: TextStyle(color: nullColor, fontStyle: FontStyle.italic),
+        ));
+      } else if (match.group(6) != null) {
+        // Punctuation
+        spans.add(TextSpan(
+          text: match.group(6),
+          style: TextStyle(color: punctuationColor),
+        ));
+      }
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < jsonStr.length) {
+      spans.add(TextSpan(
+        text: jsonStr.substring(lastMatchEnd),
+        style: TextStyle(color: punctuationColor),
+      ));
+    }
+
+    return SelectableText.rich(
+      TextSpan(
+        children: spans,
+        style: const TextStyle(
+          fontSize: 12,
+          fontFamily: 'monospace',
+          height: 1.4,
         ),
       ),
     );
