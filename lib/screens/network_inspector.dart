@@ -18,15 +18,14 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
   AliceHttpCall? _selectedCall;
   String _searchQuery = '';
   String _filterMethod = 'ALL';
+  String _selectedDeviceId = 'ALL'; // Multi-device filter
 
   @override
   void initState() {
     super.initState();
-    // Load mock sample data initially
     _allCalls.addAll(MockData.generateSampleCalls());
     _filteredCalls = List.from(_allCalls);
 
-    // Start WebSocket server on port 4040
     _wsServer = AliceWebSocketServer(port: 4040);
     _wsServer.start();
     _wsServer.onCallReceived.listen((call) {
@@ -43,14 +42,28 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
     super.dispose();
   }
 
+  /// Extracts unique connected devices from captured calls
+  Map<String, String> get _connectedDevices {
+    final map = <String, String>{'ALL': 'All Connected Devices'};
+    for (final call in _allCalls) {
+      if (call.deviceId != null && call.deviceId!.isNotEmpty) {
+        final label = '${call.deviceName ?? 'Device'} (${call.deviceOs ?? 'Mobile'})';
+        map[call.deviceId!] = label;
+      }
+    }
+    return map;
+  }
+
   void _filterCalls() {
     setState(() {
       _filteredCalls = _allCalls.where((call) {
+        final matchesDevice = _selectedDeviceId == 'ALL' || call.deviceId == _selectedDeviceId;
         final matchesMethod = _filterMethod == 'ALL' || call.method == _filterMethod;
         final matchesSearch = _searchQuery.isEmpty ||
             call.uri.contains(_searchQuery) ||
-            (call.statusCode?.toString().contains(_searchQuery) ?? false);
-        return matchesMethod && matchesSearch;
+            (call.statusCode?.toString().contains(_searchQuery) ?? false) ||
+            (call.deviceName?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+        return matchesDevice && matchesMethod && matchesSearch;
       }).toList();
     });
   }
@@ -60,6 +73,7 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final panelColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
     final borderColor = isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0);
+    final devicesMap = _connectedDevices;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
@@ -71,22 +85,62 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
             color: isDark ? const Color(0xFF1A1A2E) : const Color(0xFF6C5CE7),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(Icons.network_ping, color: Colors.white, size: 28),
                 const SizedBox(width: 12),
                 const Text(
-                  'Alice Network Inspector (Port 4040)',
+                  'Alice Workstation',
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
                 ),
+                const SizedBox(width: 20),
+
+                // Device selector dropdown
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.devices, color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: devicesMap.containsKey(_selectedDeviceId) ? _selectedDeviceId : 'ALL',
+                        dropdownColor: isDark ? const Color(0xFF1A1A2E) : Colors.white,
+                        underline: const SizedBox(),
+                        icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                        items: devicesMap.entries.map((entry) {
+                          return DropdownMenuItem(
+                            value: entry.key,
+                            child: Text(
+                              entry.value,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 13,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            _selectedDeviceId = value;
+                            _filterCalls();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
                 const Spacer(),
 
                 // Search bar
                 SizedBox(
-                  width: 300,
+                  width: 260,
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Search requests...',
+                      hintText: 'Search requests or devices...',
                       prefixIcon: const Icon(Icons.search, color: Colors.white70),
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.15),
@@ -96,7 +150,7 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                       ),
                       contentPadding: const EdgeInsets.symmetric(vertical: 0),
                     ),
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
                     onChanged: (value) {
                       _searchQuery = value;
                       _filterCalls();
@@ -120,7 +174,13 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                     items: ['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((method) {
                       return DropdownMenuItem(
                         value: method,
-                        child: Text(method, style: const TextStyle(color: Colors.white)),
+                        child: Text(
+                          method,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 13,
+                          ),
+                        ),
                       );
                     }).toList(),
                     onChanged: (value) {
@@ -133,7 +193,7 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                 ),
                 const SizedBox(width: 16),
 
-                // Stats
+                // Connected devices count badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -143,13 +203,12 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.request_page, color: Colors.white, size: 16),
-                      const SizedBox(width: 4),
-                      Text('${_filteredCalls.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 8),
-                      Icon(Icons.check_circle, color: Colors.green.shade300, size: 16),
-                      const SizedBox(width: 4),
-                      Text('${_filteredCalls.where((c) => c.isSuccess).length}', style: const TextStyle(color: Colors.white)),
+                      Icon(Icons.cell_tower, color: Colors.green.shade300, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${devicesMap.length - 1} Devices Connected',
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ),
@@ -183,7 +242,7 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                       ),
                       Expanded(
                         child: _filteredCalls.isEmpty
-                            ? Center(child: Text('No requests found', style: TextStyle(color: isDark ? Colors.white38 : Colors.black38)))
+                            ? Center(child: Text('No requests found for selected device', style: TextStyle(color: isDark ? Colors.white38 : Colors.black38)))
                             : ListView.builder(
                                 itemCount: _filteredCalls.length,
                                 itemBuilder: (context, index) {
@@ -284,69 +343,66 @@ class _RequestListItem extends StatelessWidget {
               : null,
           border: Border(
             left: BorderSide(
-              color: isSelected
-                  ? const Color(0xFF6C5CE7)
-                  : Colors.transparent,
+              color: isSelected ? const Color(0xFF6C5CE7) : Colors.transparent,
               width: 3,
             ),
           ),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _getMethodColor(call.method),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                call.method.toUpperCase(),
-                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _getMethodColor(call.method),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    call.method.toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
                     call.uri,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: isDark ? Colors.white70 : Colors.black87,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: call.isSuccess ? Colors.green : Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${call.statusCode ?? '???'}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: call.isSuccess ? (isDark ? Colors.greenAccent : Colors.green) : (isDark ? Colors.redAccent : Colors.red),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${call.durationMs}ms',
-                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black45),
-                      ),
-                    ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  call.deviceOs?.toLowerCase().contains('android') == true
+                      ? Icons.android
+                      : Icons.phone_iphone,
+                  size: 12,
+                  color: isDark ? Colors.white38 : Colors.black45,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  call.deviceName ?? 'Device',
+                  style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black45),
+                ),
+                const Spacer(),
+                Text(
+                  '${call.statusCode ?? '???'} • ${call.durationMs}ms',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: call.isSuccess ? (isDark ? Colors.greenAccent : Colors.green) : Colors.red,
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),
@@ -421,6 +477,12 @@ class _DetailsPanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
+                    _InfoChip(
+                      icon: Icons.smartphone,
+                      label: '${call.deviceName ?? 'Mobile'} (${call.deviceOs ?? 'OS'})',
+                      color: Colors.purpleAccent,
+                    ),
+                    const SizedBox(width: 8),
                     _InfoChip(icon: Icons.speed, label: '${call.durationMs}ms'),
                     const SizedBox(width: 8),
                     _InfoChip(
@@ -428,8 +490,6 @@ class _DetailsPanel extends StatelessWidget {
                       label: (call.statusCode ?? 'ERR').toString(),
                       color: call.isSuccess ? Colors.green : Colors.red,
                     ),
-                    const SizedBox(width: 8),
-                    _InfoChip(icon: Icons.schedule, label: call.timestamp.toString().split('.').first),
                   ],
                 ),
               ],

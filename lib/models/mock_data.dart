@@ -1,6 +1,6 @@
 import 'package:alice_transport/alice_transport.dart';
 
-/// Mock data for the network inspector prototype
+/// Mock data for the network inspector workstation
 class MockData {
   static List<AliceHttpCall> generateSampleCalls() {
     final now = DateTime.now();
@@ -16,6 +16,9 @@ class MockData {
         responseHeaders: const {'content-type': 'application/json; charset=utf-8'},
         responseBody: '{"name":"flutter","full_name":"flutter/flutter","stargazers_count":156789}',
         durationMs: 342,
+        deviceId: 'dev_pixel8',
+        deviceName: 'Pixel 8 Pro',
+        deviceOs: 'Android 14',
       ),
       AliceHttpCall(
         id: 'call_002',
@@ -28,6 +31,9 @@ class MockData {
         responseHeaders: const {'content-type': 'application/json', 'set-cookie': 'session=****'},
         responseBody: '{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.****","expires_in":3600}',
         durationMs: 891,
+        deviceId: 'dev_iphone15',
+        deviceName: 'iPhone 15 Pro',
+        deviceOs: 'iOS 17.2',
       ),
       AliceHttpCall(
         id: 'call_003',
@@ -40,6 +46,9 @@ class MockData {
         responseHeaders: const {'content-type': 'application/json'},
         responseBody: '{"id":"usr_123","name":"Alice Developer","email":"alice@example.com"}',
         durationMs: 156,
+        deviceId: 'dev_pixel8',
+        deviceName: 'Pixel 8 Pro',
+        deviceOs: 'Android 14',
       ),
       AliceHttpCall(
         id: 'call_004',
@@ -52,6 +61,9 @@ class MockData {
         responseHeaders: const {'content-type': 'application/json'},
         responseBody: '{"id":"usr_123","name":"Alice Dev","bio":"Building awesome things"}',
         durationMs: 234,
+        deviceId: 'dev_ipad',
+        deviceName: 'iPad Air M2',
+        deviceOs: 'iPadOS 17.5',
       ),
       AliceHttpCall(
         id: 'call_005',
@@ -64,6 +76,9 @@ class MockData {
         responseHeaders: const {'content-type': 'image/webp', 'cache-control': 'public, max-age=86400'},
         responseBody: '[Binary data - 245KB]',
         durationMs: 89,
+        deviceId: 'dev_iphone15',
+        deviceName: 'iPhone 15 Pro',
+        deviceOs: 'iOS 17.2',
       ),
     ];
   }

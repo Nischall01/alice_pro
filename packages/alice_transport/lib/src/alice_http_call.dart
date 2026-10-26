@@ -18,6 +18,11 @@ class AliceHttpCall {
   final bool isSuccess;
   final String? error;
 
+  // Device info metadata
+  final String? deviceId;
+  final String? deviceName;
+  final String? deviceOs;
+
   const AliceHttpCall({
     required this.id,
     required this.timestamp,
@@ -31,6 +36,9 @@ class AliceHttpCall {
     required this.durationMs,
     this.isSuccess = true,
     this.error,
+    this.deviceId,
+    this.deviceName,
+    this.deviceOs,
   });
 
   factory AliceHttpCall.fromJson(Map<String, dynamic> json) =>

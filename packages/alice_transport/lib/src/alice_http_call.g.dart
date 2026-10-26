@@ -22,6 +22,9 @@ AliceHttpCall _$AliceHttpCallFromJson(Map<String, dynamic> json) =>
       durationMs: (json['durationMs'] as num).toInt(),
       isSuccess: json['isSuccess'] as bool? ?? true,
       error: json['error'] as String?,
+      deviceId: json['deviceId'] as String?,
+      deviceName: json['deviceName'] as String?,
+      deviceOs: json['deviceOs'] as String?,
     );
 
 Map<String, dynamic> _$AliceHttpCallToJson(AliceHttpCall instance) =>
@@ -38,4 +41,7 @@ Map<String, dynamic> _$AliceHttpCallToJson(AliceHttpCall instance) =>
       'durationMs': instance.durationMs,
       'isSuccess': instance.isSuccess,
       'error': instance.error,
+      'deviceId': instance.deviceId,
+      'deviceName': instance.deviceName,
+      'deviceOs': instance.deviceOs,
     };
