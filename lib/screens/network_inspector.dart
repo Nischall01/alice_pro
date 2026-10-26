@@ -5,7 +5,13 @@ import '../server/websocket_server.dart';
 
 /// Desktop Network Inspector - 3-pane workstation layout
 class NetworkInspectorScreen extends StatefulWidget {
-  const NetworkInspectorScreen({super.key});
+  /// Whether to populate mock sample calls on startup (defaults to false)
+  final bool useMockData;
+
+  const NetworkInspectorScreen({
+    super.key,
+    this.useMockData = false,
+  });
 
   @override
   State<NetworkInspectorScreen> createState() => _NetworkInspectorScreenState();
@@ -18,12 +24,14 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
   AliceHttpCall? _selectedCall;
   String _searchQuery = '';
   String _filterMethod = 'ALL';
-  String _selectedDeviceId = 'ALL'; // Multi-device filter
+  String _selectedDeviceId = 'ALL';
 
   @override
   void initState() {
     super.initState();
-    _allCalls.addAll(MockData.generateSampleCalls());
+    if (widget.useMockData) {
+      _allCalls.addAll(MockData.generateSampleCalls());
+    }
     _filteredCalls = List.from(_allCalls);
 
     _wsServer = AliceWebSocketServer(port: 4040);
@@ -242,7 +250,16 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
                       ),
                       Expanded(
                         child: _filteredCalls.isEmpty
-                            ? Center(child: Text('No requests found for selected device', style: TextStyle(color: isDark ? Colors.white38 : Colors.black38)))
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Text(
+                                    'Listening on ws://0.0.0.0:4040/...\nWaiting for HTTP traffic from connected devices.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13),
+                                  ),
+                                ),
+                              )
                             : ListView.builder(
                                 itemCount: _filteredCalls.length,
                                 itemBuilder: (context, index) {
