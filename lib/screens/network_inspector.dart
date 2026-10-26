@@ -20,6 +20,7 @@ class NetworkInspectorScreen extends StatefulWidget {
 class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
   late AliceWebSocketServer _wsServer;
   final List<AliceHttpCall> _allCalls = [];
+  final Map<String, String> _handshakeDevices = {};
   List<AliceHttpCall> _filteredCalls = [];
   AliceHttpCall? _selectedCall;
   String _searchQuery = '';
@@ -36,6 +37,13 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
 
     _wsServer = AliceWebSocketServer(port: 4040);
     _wsServer.start();
+
+    _wsServer.onDeviceConnected.listen((info) {
+      setState(() {
+        _handshakeDevices[info.deviceName] = '${info.deviceName} (${info.platform}) [Connected]';
+      });
+    });
+
     _wsServer.onCallReceived.listen((call) {
       setState(() {
         _allCalls.insert(0, call);
@@ -50,9 +58,12 @@ class _NetworkInspectorScreenState extends State<NetworkInspectorScreen> {
     super.dispose();
   }
 
-  /// Extracts unique connected devices from captured calls
+  /// Extracts unique connected devices from captured calls & handshakes
   Map<String, String> get _connectedDevices {
     final map = <String, String>{'ALL': 'All Connected Devices'};
+    for (final entry in _handshakeDevices.entries) {
+      map[entry.key] = entry.value;
+    }
     for (final call in _allCalls) {
       if (call.deviceId != null && call.deviceId!.isNotEmpty) {
         final label = '${call.deviceName ?? 'Device'} (${call.deviceOs ?? 'Mobile'})';
