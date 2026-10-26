@@ -717,23 +717,77 @@ class _CodeBlockState extends State<_CodeBlock> {
   bool _isFormatted = true;
   bool _copied = false;
 
-  String get _formattedCode {
-    if (!_isFormatted) return widget.code;
+  dynamic _tryParseJson(String input) {
     try {
-      final parsed = jsonDecode(widget.code);
-      return const JsonEncoder.withIndent('  ').convert(parsed);
+      final firstPass = jsonDecode(input);
+      if (firstPass is String) {
+        try {
+          return jsonDecode(firstPass);
+        } catch (_) {
+          return firstPass;
+        }
+      }
+      return firstPass;
     } catch (_) {
-      return widget.code;
+      return null;
     }
   }
 
-  bool get _isJson {
-    try {
-      jsonDecode(widget.code);
-      return true;
-    } catch (_) {
-      return false;
+  String get _formattedCode {
+    if (!_isFormatted) return widget.code;
+
+    // 1. Try standard JSON
+    final parsedJson = _tryParseJson(widget.code);
+    if (parsedJson != null && parsedJson is! String) {
+      return const JsonEncoder.withIndent('  ').convert(parsedJson);
     }
+
+    // 2. Try formatting Dart map string format: {key: val, key2: val2}
+    final raw = widget.code.trim();
+    if ((raw.startsWith('{') && raw.endsWith('}')) || (raw.startsWith('[') && raw.endsWith(']'))) {
+      return _formatDartMapString(raw);
+    }
+
+    return widget.code;
+  }
+
+  bool get _isJson {
+    final parsed = _tryParseJson(widget.code);
+    return parsed != null && parsed is! String;
+  }
+
+  String _formatDartMapString(String str) {
+    final sb = StringBuffer();
+    int indent = 0;
+    bool inQuotes = false;
+
+    for (int i = 0; i < str.length; i++) {
+      final char = str[i];
+      if (char == '"' || char == "'") {
+        inQuotes = !inQuotes;
+        sb.write(char);
+      } else if (!inQuotes && (char == '{' || char == '[')) {
+        sb.write(char);
+        sb.write('\n');
+        indent++;
+        sb.write('  ' * indent);
+      } else if (!inQuotes && (char == '}' || char == ']')) {
+        sb.write('\n');
+        indent = (indent - 1).clamp(0, 100);
+        sb.write('  ' * indent);
+        sb.write(char);
+      } else if (!inQuotes && char == ',') {
+        sb.write(char);
+        sb.write('\n');
+        sb.write('  ' * indent);
+        if (i + 1 < str.length && str[i + 1] == ' ') {
+          i++; // Skip space after comma
+        }
+      } else {
+        sb.write(char);
+      }
+    }
+    return sb.toString();
   }
 
   void _copyToClipboard() {

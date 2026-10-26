@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:alice_transport/alice_transport.dart';
 import 'alice_core.dart';
@@ -6,6 +7,16 @@ class AliceDioInterceptor extends Interceptor {
   final Alice alice;
 
   AliceDioInterceptor({required this.alice});
+
+  String? _parseBody(dynamic data) {
+    if (data == null) return null;
+    if (data is String) return data;
+    try {
+      return jsonEncode(data);
+    } catch (_) {
+      return data.toString();
+    }
+  }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
@@ -32,10 +43,10 @@ class AliceDioInterceptor extends Interceptor {
       method: response.requestOptions.method,
       uri: response.requestOptions.uri.toString(),
       headers: reqHeaders,
-      body: response.requestOptions.data?.toString(),
+      body: _parseBody(response.requestOptions.data),
       statusCode: response.statusCode,
       responseHeaders: resHeaders,
-      responseBody: response.data?.toString(),
+      responseBody: _parseBody(response.data),
       durationMs: duration.inMilliseconds,
       isSuccess: (response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 300,
     );
@@ -53,14 +64,19 @@ class AliceDioInterceptor extends Interceptor {
     final reqHeaders = <String, String>{};
     err.requestOptions.headers.forEach((k, v) => reqHeaders[k] = v.toString());
 
+    final resHeaders = <String, String>{};
+    err.response?.headers.forEach((k, v) => resHeaders[k] = v.join(', '));
+
     final call = AliceHttpCall(
       id: id,
       timestamp: startTime,
       method: err.requestOptions.method,
       uri: err.requestOptions.uri.toString(),
       headers: reqHeaders,
-      body: err.requestOptions.data?.toString(),
+      body: _parseBody(err.requestOptions.data),
       statusCode: err.response?.statusCode,
+      responseHeaders: resHeaders.isNotEmpty ? resHeaders : null,
+      responseBody: _parseBody(err.response?.data),
       durationMs: duration.inMilliseconds,
       isSuccess: false,
       error: err.message,
